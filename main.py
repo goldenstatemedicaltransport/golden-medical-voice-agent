@@ -2,6 +2,8 @@ import uuid
 import asyncio
 import logging
 import json
+import os
+import psutil
 from typing import cast, Annotated
 from typing_extensions import TypedDict
 
@@ -44,7 +46,14 @@ def handle_async_exception(loop, context):
 asyncio.get_event_loop().set_exception_handler(handle_async_exception)
 
 
-# --- TypedDict for LLM Response ---
+def log_open_files():
+    """Log the number of open files and connections (for debugging resource leaks)."""
+    proc = psutil.Process(os.getpid())
+    logging.info(
+        f"Open files: {len(proc.open_files())}, Open connections: {len(proc.connections())}"
+    )
+
+
 class ResponseEmotion(TypedDict):
     voice_instructions: Annotated[
         str,
@@ -56,16 +65,15 @@ class ResponseEmotion(TypedDict):
     response: str
 
 
-# --- Utility Function ---
 async def maybe_awaitable(val):
     if asyncio.iscoroutine(val):
         return await val
     return val
 
 
-# --- Voice AI Agent Implementation ---
 class VoiceAIAgent:
     def __init__(self):
+        # Only instantiate these once per agent
         self.vad = silero.VAD.load
         self.stt = deepgram.STT
         self.tts = aws.TTS(
@@ -154,6 +162,7 @@ class VoiceAIAgent:
 
     async def entrypoint(self, ctx: JobContext) -> None:
         logging.info("Voice AI Agent entrypoint called")
+        session = None
         try:
             agent = await self.initialize_voice_session(ctx)
             logging.info("Agent initialized")
@@ -192,6 +201,8 @@ class VoiceAIAgent:
                 await session.say(goodbye_msg, allow_interruptions=False)
                 logging.info("Goodbye message sent, closing session.")
                 await session.aclose()
+                session = None  # Mark as closed
+
                 parsed_data = data_parse_from_chat(
                     collected_data, "voice_call", self.user_phone
                 )
@@ -207,8 +218,17 @@ class VoiceAIAgent:
                     logging.info("State stored successfully.")
                 else:
                     logging.error("Failed to store state.")
+            # Optional: log open files after session
+            # log_open_files()
         except Exception as e:
             logging.exception(f"Exception in entrypoint: {e}")
+        finally:
+            # Ensure session is closed even if an error occurs
+            if session is not None:
+                await session.aclose()
+                logging.info("Session forcibly closed in finally block.")
+            # Optional: log open files at the end
+            # log_open_files()
 
     def run(self) -> None:
         logging.info("Voice AI Agent is running...")

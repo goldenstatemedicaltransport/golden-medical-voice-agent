@@ -1,5 +1,10 @@
 import uuid
 import asyncio
+import logging
+import json
+from typing import cast, Annotated
+from typing_extensions import TypedDict
+
 from livekit import rtc, agents
 from livekit.agents import (
     Agent,
@@ -19,17 +24,27 @@ from livekit.plugins import (
     aws,
     openai,
 )
-
-# from livekit.agents.stt import SpeechEventType, SpeechEvent
-from typing import cast, Annotated
-from prompt import SYSTEM_PROMPT
 from pydantic import Field
-from typing_extensions import TypedDict
-import json
+
+from prompt import SYSTEM_PROMPT
 from helpers import data_parse_from_chat, extract_json_from_reply
 from store import form_service
 
+# --- Logging Setup ---
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s:%(message)s",
+    level=logging.INFO,
+)
 
+
+def handle_async_exception(loop, context):
+    logging.error(f"Caught async exception: {context}")
+
+
+asyncio.get_event_loop().set_exception_handler(handle_async_exception)
+
+
+# --- TypedDict for LLM Response ---
 class ResponseEmotion(TypedDict):
     voice_instructions: Annotated[
         str,
@@ -41,12 +56,14 @@ class ResponseEmotion(TypedDict):
     response: str
 
 
+# --- Utility Function ---
 async def maybe_awaitable(val):
     if asyncio.iscoroutine(val):
         return await val
     return val
 
 
+# --- Voice AI Agent Implementation ---
 class VoiceAIAgent:
     def __init__(self):
         self.vad = silero.VAD.load
@@ -58,6 +75,7 @@ class VoiceAIAgent:
             region="us-east-1",
         )
         self.llm = openai.LLM(model="gpt-4o-mini")
+        self.user_phone = None  # Will be set in session
 
     async def llm_node(
         self,
@@ -81,8 +99,10 @@ class VoiceAIAgent:
 
     def get_participant_details(self, participant: rtc.RemoteParticipant) -> dict:
         if participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP:
-            user_phone_number = participant.attributes["sip.phoneNumber"]
-            twilio_phone_number = participant.attributes["sip.trunkPhoneNumber"]
+            user_phone_number = participant.attributes.get("sip.phoneNumber", "unknown")
+            twilio_phone_number = participant.attributes.get(
+                "sip.trunkPhoneNumber", "unknown"
+            )
             chat_id = self._generate_chat_id()
             return {
                 "user_phone_number": user_phone_number,
@@ -98,7 +118,7 @@ class VoiceAIAgent:
 
     async def initialize_voice_session(self, ctx: JobContext) -> Agent:
         await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
-        print("Connected to room", ctx.room.isconnected())
+        logging.info("Connected to room: %s", ctx.room.isconnected())
         participant = await ctx.wait_for_participant()
 
         details = self.get_participant_details(participant)
@@ -114,8 +134,8 @@ class VoiceAIAgent:
             id=chat_id,
         )
 
-        print("user_phone", user_phone)
-        print("twilio_phone", twilio_phone)
+        logging.info(f"user_phone: {user_phone}")
+        logging.info(f"twilio_phone: {twilio_phone}")
 
         agent = Agent(
             instructions=(
@@ -129,61 +149,76 @@ class VoiceAIAgent:
             tts=self.tts,
             chat_ctx=initial_ctx,
         )
-        print("Agent initialized with VAD, STT, TTS, and LLM")
-        # ctx.add_shutdown_callback(self.cleanup_session(user_phone=user_phone))
+        logging.info("Agent initialized with VAD, STT, TTS, and LLM")
         return agent
 
     async def entrypoint(self, ctx: JobContext) -> None:
-        print("Voice AI Agent entrypoint called")
-        agent = await self.initialize_voice_session(ctx)
-        print("Agent initialized")
-        session = AgentSession()
-        print("Starting agent session")
-        await session.start(
-            agent=agent,
-            room=ctx.room,
-        )
-        print("Agent session started")
-        await session.say("Hello, how can I help you?", allow_interruptions=True)
+        logging.info("Voice AI Agent entrypoint called")
+        try:
+            agent = await self.initialize_voice_session(ctx)
+            logging.info("Agent initialized")
+            session = AgentSession()
+            logging.info("Starting agent session")
+            await session.start(
+                agent=agent,
+                room=ctx.room,
+            )
+            logging.info("Agent session started")
+            await session.say("Hello, how can I help you?", allow_interruptions=True)
 
-        chat_ctx = agent.chat_ctx
-        tools = []
-        model_settings = ModelSettings()
-        reply_msg = ""
-        async for chunk in self.llm_node(chat_ctx, tools, model_settings):
-            if chunk.delta and chunk.delta.content:
-                reply_msg += chunk.delta.content
-        json_reply_msg = json.loads(reply_msg)
-        print(json_reply_msg["response"])
-        collected_data = extract_json_from_reply(json_reply_msg["response"])
-        if collected_data:
-            print(collected_data)
-            if collected_data.get("intent") == "PRIVATE_PAY":
-                goodbye_msg = "Thanks for calling! Please reply with the trip details listed above so we can prepare your quote and confirm availability."
-            elif collected_data.get("intent") == "INSURANCE_CASE_MANAGERS":
-                goodbye_msg = "Thank you — we’ve received the transport request for [Patient Name]. We’ll forward this to dispatch for review and follow up shortly."
-            elif collected_data.get("intent") == "DISCHARGE":
-                goodbye_msg = "Got it! Our dispatch team will review this now and follow up shortly."
-            await session.say(goodbye_msg, allow_interruptions=False)
-            print("Goodbye message sent, closing session.")
-            await session.aclose()
-            parsed_data = data_parse_from_chat(
-                collected_data, "voice_call", self.user_phone
-            )
-            success = form_service.store_intake_data(
-                parsed_data, collected_data.get("intent")
-            )
-            if success:
-                print("State stored successfully.")
+            chat_ctx = agent.chat_ctx
+            tools = []
+            model_settings = ModelSettings()
+            reply_msg = ""
+            async for chunk in self.llm_node(chat_ctx, tools, model_settings):
+                if chunk.delta and chunk.delta.content:
+                    reply_msg += chunk.delta.content
+
+            json_reply_msg = json.loads(reply_msg)
+            logging.info(f"LLM response: {json_reply_msg.get('response')}")
+            collected_data = extract_json_from_reply(json_reply_msg.get("response", ""))
+            if collected_data:
+                logging.info(f"Collected data: {collected_data}")
+                intent = collected_data.get("intent")
+                if intent == "PRIVATE_PAY":
+                    goodbye_msg = "Thanks for calling! Please reply with the trip details listed above so we can prepare your quote and confirm availability."
+                elif intent == "INSURANCE_CASE_MANAGERS":
+                    goodbye_msg = "Thank you — we’ve received the transport request for [Patient Name]. We’ll forward this to dispatch for review and follow up shortly."
+                elif intent == "DISCHARGE":
+                    goodbye_msg = "Got it! Our dispatch team will review this now and follow up shortly."
+                else:
+                    goodbye_msg = "Thank you for your call."
+
+                await session.say(goodbye_msg, allow_interruptions=False)
+                logging.info("Goodbye message sent, closing session.")
+                await session.aclose()
+                parsed_data = data_parse_from_chat(
+                    collected_data, "voice_call", self.user_phone
+                )
+                # Assuming store_intake_data is sync, run in thread pool:
+                loop = asyncio.get_running_loop()
+                success = await loop.run_in_executor(
+                    None,
+                    form_service.store_intake_data,
+                    parsed_data,
+                    intent,
+                )
+                if success:
+                    logging.info("State stored successfully.")
+                else:
+                    logging.error("Failed to store state.")
+        except Exception as e:
+            logging.exception(f"Exception in entrypoint: {e}")
 
     def run(self) -> None:
-        print("Voice AI Agent is running...")
+        logging.info("Voice AI Agent is running...")
         try:
             agents.cli.run_app(
                 WorkerOptions(entrypoint_fnc=self.entrypoint, load_threshold=1)
             )
         except Exception as e:
-            print(f"Exception in on_text_delta: {e}")
+            logging.exception(f"Exception in agent run: {e}")
 
 
-VoiceAIAgent().run()
+if __name__ == "__main__":
+    VoiceAIAgent().run()

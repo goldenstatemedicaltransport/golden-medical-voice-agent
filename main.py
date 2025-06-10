@@ -25,7 +25,7 @@ from typing import cast, Annotated
 from prompt import SYSTEM_PROMPT, HANG_UP_PROMPT
 from pydantic import Field
 from typing_extensions import TypedDict
-from helpers import data_parse_from_chat, extract_json_from_reply, classify_hang_up
+from helpers import data_parse_from_chat, extract_json_from_reply
 from store import form_service
 
 

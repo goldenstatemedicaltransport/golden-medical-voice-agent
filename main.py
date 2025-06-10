@@ -19,6 +19,7 @@ from livekit.plugins import (
     aws,
     openai,
 )
+import multiprocessing
 
 # from livekit.agents.stt import SpeechEventType, SpeechEvent
 from typing import cast, Annotated
@@ -48,15 +49,7 @@ async def maybe_awaitable(val):
 
 class VoiceAIAgent:
     def __init__(self):
-        self.vad = silero.VAD.load
-        self.stt = deepgram.STT
-        self.llm = openai.LLM(model="gpt-4o-mini")
-        self.tts = aws.TTS(
-            voice="Ruth",
-            speech_engine="generative",
-            language="en-US",
-            region="us-east-1",
-        )
+        pass
 
     async def llm_node(
         self,
@@ -133,6 +126,16 @@ class VoiceAIAgent:
         return agent
 
     async def entrypoint(self, ctx: JobContext) -> None:
+        self.vad = silero.VAD.load
+        self.stt = deepgram.STT
+        self.llm = openai.LLM(model="gpt-4o-mini")
+        self.tts = aws.TTS(
+            voice="Ruth",
+            speech_engine="generative",
+            language="en-US",
+            region="us-east-1",
+        )
+
         print("Voice AI Agent entrypoint called")
         agent = await self.initialize_voice_session(ctx)
         print("Agent initialized")
@@ -198,4 +201,5 @@ class VoiceAIAgent:
 
 
 if __name__ == "__main__":
+    multiprocessing.set_start_method("spawn")
     VoiceAIAgent().run()

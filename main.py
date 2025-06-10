@@ -22,11 +22,10 @@ from livekit.plugins import (
 
 # from livekit.agents.stt import SpeechEventType, SpeechEvent
 from typing import cast, Annotated
-from prompt import SYSTEM_PROMPT
+from prompt import SYSTEM_PROMPT, HANG_UP_PROMPT
 from pydantic import Field
 from typing_extensions import TypedDict
-import json
-from helpers import data_parse_from_chat, extract_json_from_reply
+from helpers import data_parse_from_chat, extract_json_from_reply, classify_hang_up
 from store import form_service
 
 
@@ -110,7 +109,7 @@ class VoiceAIAgent:
         initial_ctx = livekit_llm.ChatContext()
         initial_ctx.add_message(
             role="system",
-            content=[SYSTEM_PROMPT],
+            content=[SYSTEM_PROMPT + HANG_UP_PROMPT],
             id=chat_id,
         )
 
@@ -144,39 +143,49 @@ class VoiceAIAgent:
             room=ctx.room,
         )
         print("Agent session started")
-        await session.say("Hello, how can I help you?", allow_interruptions=True)
 
-        chat_ctx = agent.chat_ctx
-        tools = []
-        model_settings = ModelSettings()
-        while True:
-            reply_msg = ""
-            async for chunk in self.llm_node(chat_ctx, tools, model_settings):
-                if chunk.delta and chunk.delta.content:
-                    reply_msg += chunk.delta.content
-            json_reply_msg = json.loads(reply_msg)
-            print(json_reply_msg["response"])
-            collected_data = extract_json_from_reply(json_reply_msg["response"])
-            if collected_data:
-                print(collected_data)
-                if collected_data.get("intent") == "PRIVATE_PAY":
-                    goodbye_msg = "Thanks for calling! Please reply with the trip details listed above so we can prepare your quote and confirm availability."
-                elif collected_data.get("intent") == "INSURANCE_CASE_MANAGERS":
-                    goodbye_msg = "Thank you — we’ve received the transport request for [Patient Name]. We’ll forward this to dispatch for review and follow up shortly."
-                elif collected_data.get("intent") == "DISCHARGE":
-                    goodbye_msg = "Got it! Our dispatch team will review this now and follow up shortly."
-                await session.say(goodbye_msg, allow_interruptions=False)
-                print("Goodbye message sent, closing session.")
+        async def handle_conversation_item(event: agents.ConversationItemAddedEvent):
+            if event.item.role == "user":
+                print("user message:", event.item.content)
+            if event.item.role == "assistant":
+                print("assistant message:", event.item.content)
+                reply_msg = event.item.content[0]
+                collected_data = extract_json_from_reply(reply_msg)
+                if collected_data:
+                    print(collected_data)
+                    if collected_data.get("intent") == "PRIVATE_PAY":
+                        goodbye_msg = "Thanks for calling! Please reply with the trip details listed above so we can prepare your quote and confirm availability."
+                    elif collected_data.get("intent") == "INSURANCE_CASE_MANAGERS":
+                        goodbye_msg = "Thank you — we’ve received the transport request for [Patient Name]. We’ll forward this to dispatch for review and follow up shortly."
+                    elif collected_data.get("intent") == "DISCHARGE":
+                        goodbye_msg = "Got it! Our dispatch team will review this now and follow up shortly."
+                    await session.say(goodbye_msg, allow_interruptions=False)
+                    print("Goodbye message sent, closing session.")
+                    await session.aclose()
+                    parsed_data = data_parse_from_chat(
+                        collected_data, "voice_call", self.user_phone
+                    )
+                    success = form_service.store_intake_data(
+                        parsed_data, collected_data.get("intent")
+                    )
+                    if success:
+                        print("State stored successfully.")
+
+        def on_conversation_item_added(event: agents.ConversationItemAddedEvent):
+            asyncio.create_task(handle_conversation_item(event))
+
+        session.on("conversation_item_added", on_conversation_item_added)
+        try:
+            await session.start(agent=agent, room=ctx.room)
+            # Keep the session alive until closed
+            while session._activity:
+                await asyncio.sleep(1)
+
+        except Exception as e:
+            print(f"Session error: {e}")
+        finally:
+            if session._activity:
                 await session.aclose()
-                parsed_data = data_parse_from_chat(
-                    collected_data, "voice_call", self.user_phone
-                )
-                success = form_service.store_intake_data(
-                    parsed_data, collected_data.get("intent")
-                )
-                if success:
-                    print("State stored successfully.")
-                break
 
     def run(self) -> None:
         print("Voice AI Agent is running...")

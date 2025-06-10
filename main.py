@@ -145,6 +145,9 @@ class VoiceAIAgent:
             agent=agent,
             room=ctx.room,
         )
+        session.say(
+            "Hi! This is Golden State Medical Transport. How can I assist you today?"
+        )
         print("Agent session started")
 
         async def handle_conversation_item(event: agents.ConversationItemAddedEvent):

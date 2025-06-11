@@ -23,7 +23,7 @@ import multiprocessing
 
 # from livekit.agents.stt import SpeechEventType, SpeechEvent
 from typing import cast, Annotated
-from prompt import SYSTEM_PROMPT, HANG_UP_PROMPT
+from prompt import SYSTEM_PROMPT
 from pydantic import Field
 from typing_extensions import TypedDict
 from helpers import data_parse_from_chat, extract_json_from_reply
@@ -102,7 +102,7 @@ class VoiceAIAgent:
         initial_ctx = livekit_llm.ChatContext()
         initial_ctx.add_message(
             role="system",
-            content=[SYSTEM_PROMPT + HANG_UP_PROMPT],
+            content=[SYSTEM_PROMPT],
             id=chat_id,
         )
 
@@ -128,7 +128,7 @@ class VoiceAIAgent:
     async def entrypoint(self, ctx: JobContext) -> None:
         self.vad = silero.VAD.load
         self.stt = deepgram.STT
-        self.llm = openai.LLM(model="gpt-4o-mini")
+        self.llm = openai.realtime.RealtimeModel()
         self.tts = aws.TTS(
             voice="Ruth",
             speech_engine="generative",
@@ -165,15 +165,18 @@ class VoiceAIAgent:
                         goodbye_msg = "Thank you — we’ve received the transport request for [Patient Name]. We’ll forward this to dispatch for review and follow up shortly."
                     elif collected_data.get("intent") == "DISCHARGE":
                         goodbye_msg = "Got it! Our dispatch team will review this now and follow up shortly."
-                    await session.say(goodbye_msg, allow_interruptions=False)
-                    print("Goodbye message sent, closing session.")
-                    await session.aclose()
+                    await session.say(
+                        "Thanks for providing, wait for me until storing your data.",
+                    )
                     parsed_data = data_parse_from_chat(
                         collected_data, "voice_call", self.user_phone
                     )
                     success = form_service.store_intake_data(
                         parsed_data, collected_data.get("intent")
                     )
+                    await session.say(goodbye_msg)
+                    print("Goodbye message sent, closing session.")
+                    await session.aclose()
                     if success:
                         print("State stored successfully.")
 

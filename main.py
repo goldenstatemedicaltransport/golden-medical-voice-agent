@@ -13,12 +13,9 @@ from livekit.agents import (
     NOT_GIVEN,
     llm as livekit_llm,
 )
-from livekit.plugins import (
-    deepgram,
-    silero,
-    aws,
-    openai,
-)
+import requests
+
+from livekit.plugins import deepgram, silero, aws, openai
 import multiprocessing
 
 # from livekit.agents.stt import SpeechEventType, SpeechEvent
@@ -27,7 +24,7 @@ from prompt import SYSTEM_PROMPT
 from pydantic import Field
 from typing_extensions import TypedDict
 from helpers import data_parse_from_chat, extract_json_from_reply
-from store import form_service
+from config import settings
 
 
 class ResponseEmotion(TypedDict):
@@ -116,7 +113,7 @@ class VoiceAIAgent:
                 "responses, and avoid usage of unpronouncable punctuation."
             ),
             vad=self.vad(),
-            stt=self.stt(),
+            stt=self.stt,
             llm=self.llm,
             tts=self.tts,
             chat_ctx=initial_ctx,
@@ -127,13 +124,12 @@ class VoiceAIAgent:
 
     async def entrypoint(self, ctx: JobContext) -> None:
         self.vad = silero.VAD.load
-        self.stt = deepgram.STT
+        self.stt = deepgram.STT(model="nova-3", language="en-US")
         self.llm = openai.realtime.RealtimeModel()
         self.tts = aws.TTS(
             voice="Ruth",
             speech_engine="generative",
             language="en-US",
-            region="us-east-1",
         )
 
         print("Voice AI Agent entrypoint called")
@@ -168,17 +164,24 @@ class VoiceAIAgent:
                     await session.say(
                         "Thanks for providing, wait for me until storing your data.",
                     )
+                    await session.say(goodbye_msg)
+                    print("Goodbye message sent, closing session.")
                     parsed_data = data_parse_from_chat(
                         collected_data, "voice_call", self.user_phone
                     )
-                    success = form_service.store_intake_data(
-                        parsed_data, collected_data.get("intent")
+                    payload = {
+                        "intent": collected_data.get("intent"),
+                        "data": parsed_data,
+                    }
+                    requests.post(
+                        settings.BACKEND_URL + "/store/",
+                        json=payload,
+                        headers={"Content-Type": "application/json"},
+                        timeout=30,
                     )
-                    await session.say(goodbye_msg)
-                    print("Goodbye message sent, closing session.")
                     await session.aclose()
-                    if success:
-                        print("State stored successfully.")
+                    # if success:
+                    #     print("State stored successfully.")
 
         def on_conversation_item_added(event: agents.ConversationItemAddedEvent):
             asyncio.create_task(handle_conversation_item(event))

@@ -12,13 +12,11 @@ pydantic_core==2.27.2
 livekit==1.0.8
 livekit-agents==1.0.23
 livekit-api==1.0.2
-livekit-plugins-aws==1.0.22
-livekit-plugins-deepgram==1.0.22
-livekit-plugins-elevenlabs==1.0.22
+livekit-plugins-aws==1.1.1
+livekit-plugins-deepgram==1.1.1
 livekit-plugins-noise-cancellation==0.2.4
-livekit-plugins-openai==1.0.23
-livekit-plugins-silero==1.0.22
-livekit-plugins-assemblyai==1.1.1
+livekit-plugins-openai==1.1.1
+livekit-plugins-silero==1.1.1
 livekit-protocol==1.0.3
 requests==2.32.3
 requests-oauthlib==2.0.0

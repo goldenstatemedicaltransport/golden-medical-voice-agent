@@ -128,6 +128,7 @@ class VoiceAIAgent:
             voice="Ruth",
             speech_engine="generative",
             language="en-US",
+            region="us-east-1",
         )
 
         print("Voice AI Agent entrypoint called")

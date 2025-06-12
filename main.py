@@ -17,8 +17,6 @@ import requests
 
 from livekit.plugins import deepgram, silero, aws, openai
 import multiprocessing
-
-# from livekit.agents.stt import SpeechEventType, SpeechEvent
 from typing import cast, Annotated
 from prompt import SYSTEM_PROMPT
 from pydantic import Field

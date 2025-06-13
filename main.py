@@ -110,7 +110,7 @@ class VoiceAIAgent:
                 "with users will be voice. You should use short and concise "
                 "responses, and avoid usage of unpronouncable punctuation."
             ),
-            vad=self.vad(),
+            vad=self.vad,
             stt=self.stt,
             llm=self.llm,
             tts=self.tts,
@@ -121,7 +121,15 @@ class VoiceAIAgent:
         return agent
 
     async def entrypoint(self, ctx: JobContext) -> None:
-        self.vad = silero.VAD.load
+        self.vad = silero.VAD.load(
+            min_speech_duration=0.05,
+            min_silence_duration=0.7,
+            prefix_padding_duration=0.5,
+            max_buffered_speech=60.0,
+            activation_threshold=0.6,
+            sample_rate=16000,
+            force_cpu=False,
+        )
         self.stt = deepgram.STT(model="nova-3", language="en-US")
         self.llm = openai.realtime.RealtimeModel()
         self.tts = aws.TTS(

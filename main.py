@@ -123,7 +123,7 @@ class VoiceAIAgent:
     async def entrypoint(self, ctx: JobContext) -> None:
         self.vad = silero.VAD.load(
             min_speech_duration=0.05,
-            min_silence_duration=0.7,
+            min_silence_duration=1,
             prefix_padding_duration=0.5,
             max_buffered_speech=60.0,
             activation_threshold=0.6,

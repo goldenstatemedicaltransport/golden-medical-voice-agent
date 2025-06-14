@@ -75,6 +75,7 @@ DISCHARGE:
 - weight
 
 Important:
+Every gather infomation, request confirm message to user.
 Once the user’s intent is identified and the information gathering starts, never restart the entire workflow or re-ask previously confirmed fields.
 Keep track of which fields have been collected and confirmed.
 If the user requests a change or correction, only re-ask and reconfirm that specific field.

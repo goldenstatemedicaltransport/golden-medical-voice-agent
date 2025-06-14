@@ -165,11 +165,14 @@ class VoiceAIAgent:
                     if collected_data.get("intent") == "PRIVATE_PAY":
                         goodbye_msg = "Thanks for calling! Please reply with the trip details listed above so we can prepare your quote and confirm availability."
                     elif collected_data.get("intent") == "INSURANCE_CASE_MANAGERS":
-                        goodbye_msg = "Thank you — we’ve received the transport request for [Patient Name]. We’ll forward this to dispatch for review and follow up shortly."
+                        goodbye_msg = "Thank you — we’ve received the transport request for you. We’ll forward this to dispatch for review and follow up shortly."
                     elif collected_data.get("intent") == "DISCHARGE":
                         goodbye_msg = "Got it! Our dispatch team will review this now and follow up shortly."
 
-                    await session.say(goodbye_msg)
+                    await session.say(
+                        f"{goodbye_msg} If you have any other questions or need further assistance, please let me know. "
+                        "Otherwise, we can end this call whenever you’re ready."
+                    )
                     print("Goodbye message sent, closing session.")
                     parsed_data = data_parse_from_chat(
                         collected_data, "voice_call", self.user_phone

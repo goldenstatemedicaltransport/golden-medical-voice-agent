@@ -13,12 +13,12 @@ def extract_json_from_reply(reply: str):
     return None
 
 
-def data_parse_from_chat(data: dict, channel: str, contact_info: str) -> dict:
+def data_parse_from_chat(data: dict, intent: str, channel: str, contact_info: str) -> dict:
     """
     Parses the data dictionary to extract relevant fields for storage.
     Returns a dictionary with the parsed data.
     """
-    if data.get("intent") == "PRIVATE_PAY":
+    if intent == "PRIVATE_PAY":
         parsed_data = {
             "channel": channel,
             "contact_info": contact_info,
@@ -38,7 +38,8 @@ def data_parse_from_chat(data: dict, channel: str, contact_info: str) -> dict:
             "update_time": datetime.now().isoformat(),
             "status": "completed",
         }
-    elif data.get("intent") == "INSURANCE_CASE_MANAGERS":
+    elif intent == "INSURANCE_CASE_MANAGERS":
+        print("test", data.get("patient_name", ""))
         parsed_data = {
             "channel": channel,
             "contact_info": contact_info,
@@ -50,7 +51,7 @@ def data_parse_from_chat(data: dict, channel: str, contact_info: str) -> dict:
             "update_time": datetime.now().isoformat(),
             "status": "completed",
         }
-    elif data.get("intent") == "DISCHARGE":
+    elif intent == "DISCHARGE":
         parsed_data = {
             "channel": channel,
             "contact_info": contact_info,

@@ -39,7 +39,6 @@ def data_parse_from_chat(data: dict, intent: str, channel: str, contact_info: st
             "status": "completed",
         }
     elif intent == "INSURANCE_CASE_MANAGERS":
-        print("test", data.get("patient_name", ""))
         parsed_data = {
             "channel": channel,
             "contact_info": contact_info,

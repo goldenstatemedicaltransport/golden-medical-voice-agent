@@ -77,12 +77,10 @@ class VoiceAIAgent:
         }
 
     async def post_payload(self, intent: str, data: dict):
-        print("data", data)
         payload = {
             "intent": intent,
             "data": data_parse_from_chat(data, intent, "voice_call", self.user_phone),
         }
-        print("payload", payload)
         try:
             requests.post(
                 f"{settings.BACKEND_URL}/store/",
@@ -124,7 +122,6 @@ class VoiceAIAgent:
             tool_choice="auto",  # Disable auto-tool calls for faster interaction
             parallel_tool_calls=True,  # Use parallel tools for faster processing
             temperature=0.2, 
-            max_completion_tokens=200,
         )
         self.tts = aws.TTS(voice="Ruth", speech_engine="neural", language="en-US", region="us-east-1")
 
